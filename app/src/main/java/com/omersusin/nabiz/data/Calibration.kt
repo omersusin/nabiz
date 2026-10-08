@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.map
 
 private val Context.store by preferencesDataStore(name = "nabiz")
 
-data class Cal(val offsetMs: Float, done: Boolean)
+data class Cal(val offsetMs: Float, val done: Boolean)
 
 /** Tap latency offset, so the player's device is judged on its own terms. */
 class Calibration(private val ctx: Context) {

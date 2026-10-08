@@ -22,6 +22,7 @@ class NabizAudio(private val chart: Chart) {
     companion object {
         const val SR = 44100
         private const val CHUNK = 4096
+        private const val PEAK = 26000
         private const val MIX = 0.34f
         private const val TAP_LEN = 0.42f
         private const val ATTACK = 0.008f
@@ -58,9 +59,9 @@ class NabizAudio(private val chart: Chart) {
 
     fun start() {
         val min = AudioTrack.getMinBufferSize(
-            SR, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_FLOAT,
+            SR, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
         )
-        val bufBytes = maxOf(min, CHUNK * 2 * 4 * 4)
+        val bufBytes = maxOf(min, CHUNK * 2 * 2 * 4)
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -70,7 +71,7 @@ class NabizAudio(private val chart: Chart) {
             )
             .setAudioFormat(
                 AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setSampleRate(SR)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                     .build(),
@@ -86,7 +87,7 @@ class NabizAudio(private val chart: Chart) {
     private fun mtof(m: Float): Float = 440f * 2f.pow((m - 69f) / 12f)
 
     private fun renderLoop(t: AudioTrack) {
-        val buf = FloatArray(CHUNK * 2)
+        val buf = ShortArray(CHUNK * 2)
         val voices = ArrayList<Voice>()
         val basses = ArrayList<Voice>()
         val kicks = ArrayList<Float>()
@@ -97,7 +98,7 @@ class NabizAudio(private val chart: Chart) {
         var time = 0f
         try {
             while (!stopRequested) {
-                buf.fill(0f)
+                buf.fill(0)
                 for (i in 0 until CHUNK) {
                     time = (frames + i).toFloat() / SR
 
@@ -130,14 +131,14 @@ class NabizAudio(private val chart: Chart) {
                     for (v in basses) s += v.at(time)
 
                     val o = (s * MIX).coerceIn(-1f, 1f)
-                    buf[i * 2] = o
-                    buf[i * 2 + 1] = o * 0.985f
+                    buf[i * 2] = (o * PEAK).toInt().coerceIn(-32768, 32767).toShort()
+                    buf[i * 2 + 1] = (o * PEAK * 0.985f).toInt().coerceIn(-32768, 32767).toShort()
                 }
 
                 voices.removeAll { it.done(time) }
                 basses.removeAll { it.done(time) }
 
-                val written = t.write(buf, 0, buf.size)
+                val written = t.write(buf, 0, buf.size, AudioTrack.WRITE_BLOCKING)
                 if (written < 0) break
                 frames += CHUNK
                 if (frames.toFloat() / SR > chart.length + 1.5f) {
@@ -154,12 +155,6 @@ class NabizAudio(private val chart: Chart) {
     fun songTime(): Float {
         val tr = track ?: return 0f
         return tr.playbackHeadPosition.toFloat() / SR
-    }
-
-    fun latencyMs(): Float = try {
-        (track?.latency ?: 0) / 1000f
-    } catch (_: Exception) {
-        0f
     }
 
     fun stop() {
